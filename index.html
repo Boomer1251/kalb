@@ -6,6 +6,8 @@
     <title>CCU Analytics Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Added PapaParse for CSV processing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
         body { font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif; }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -164,7 +166,8 @@
         let selectedCompareVal = '';
         let selectedSortVal = 'date-desc';
 
-        const DATA_URL = "ccu_data.json";
+        // TARGET CSV FILE NAME
+        const DATA_URL = "concurrent-players.csv";
 
         function toggleCustomDropdown(dropdownId) {
             const dropdown = document.getElementById(dropdownId);
@@ -181,15 +184,34 @@
 
         async function fetchAndInitializeDashboard() {
             try {
-                // FIXED: Appends a unique cache-busting timestamp to break old browser memory bounds
                 const response = await fetch(`${DATA_URL}?_cb=${Date.now()}`);
                 if (!response.ok) throw new Error(`Network problem status: ${response.status}`);
                 
-                const rawPayload = await response.json();
-                rawCCUData = rawPayload.filter(row => row && row.v > 0 && row.t);
+                const csvText = await response.text();
                 
-                buildCustomTimeframeLists();
-                processDataPipeline();
+                // Parse CSV text using PapaParse
+                Papa.parse(csvText, {
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: function(results) {
+                        rawCCUData = results.data.map(row => {
+                            // Target specific key names from concurrent-players.csv or fall back
+                            const rawDate = row['Date'] || row['date'] || row['DateTime'] || row['t'] || '';
+                            const rawValue = row['Value'] || row['value'] || row['CCU'] || row['Players'] || row['v'] || 0;
+                            
+                            // Format date correctly to YYYY-MM-DD HH:mm:ss if it comes in ISO standard
+                            let formattedDate = rawDate.replace('T', ' ').replace('Z', '').split('.')[0];
+
+                            return {
+                                t: formattedDate,
+                                v: parseInt(rawValue, 10) || 0
+                            };
+                        }).filter(row => row.v > 0 && row.t);
+
+                        buildCustomTimeframeLists();
+                        processDataPipeline();
+                    }
+                });
                 
             } catch (error) {
                 console.error("Failure pulling CCU ledger from GitHub:", error);
